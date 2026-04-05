@@ -19,7 +19,7 @@ Escape or clicking empty space cancels.
 
 Items with take FX get rendered with FX baked in. Cropped items render only the visible portion. Full-file items use the source directly.
 
-Rendered files go into your project's Media folder as `sampledrag_<name>_001.wav` etc.
+Rendered files go into your project's Media folder as `<name>_sd_1.wav`, `<name>_sd_2.wav`, etc.
 
 ---
 

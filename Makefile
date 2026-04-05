@@ -1,6 +1,6 @@
 CXX = clang++
 CXXFLAGS = -std=c++17 -ObjC++ -O2 -Wall -Wextra -Wno-unused-parameter \
-           -Wno-deprecated-declarations \
+           -Wno-deprecated-declarations -Wno-sign-compare \
            -arch arm64 -dynamiclib -fvisibility=hidden \
            -Ivendor/WDL -Ivendor/reaper-sdk/sdk -DSWELL_PROVIDED_BY_APP
 LDFLAGS = -framework Cocoa
@@ -24,10 +24,13 @@ $(WDL_LINK):
 $(TARGET): $(WDL_LINK) $(SRC)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(SRC)
 
+debug: $(WDL_LINK) $(SRC)
+	$(CXX) $(CXXFLAGS) -DSAMPLEDRAG_DEBUG $(LDFLAGS) -o $(TARGET) $(SRC)
+
 install: $(TARGET)
 	cp $(TARGET) $(INSTALL_DIR)/
 
 clean:
 	rm -f $(TARGET) $(WDL_LINK)
 
-.PHONY: install clean
+.PHONY: install clean debug

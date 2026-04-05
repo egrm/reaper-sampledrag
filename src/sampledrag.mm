@@ -8,10 +8,24 @@
 #include <reaper_plugin.h>
 
 // ---------------------------------------------------------------------------
-// REAPER API function pointers
+// Logging
 // ---------------------------------------------------------------------------
 
 static void (*ShowConsoleMsg)(const char* msg);
+
+#ifdef SAMPLEDRAG_DEBUG
+#define SD_LOG(fmt, ...) do { \
+    char _sdbuf[4096]; \
+    snprintf(_sdbuf, sizeof(_sdbuf), "[SampleDrag] " fmt "\n", ##__VA_ARGS__); \
+    if (ShowConsoleMsg) ShowConsoleMsg(_sdbuf); \
+} while(0)
+#else
+#define SD_LOG(fmt, ...) ((void)0)
+#endif
+
+// ---------------------------------------------------------------------------
+// REAPER API function pointers
+// ---------------------------------------------------------------------------
 static MediaItem* (*GetSelectedMediaItem)(ReaProject* proj, int selitem);
 static MediaItem_Take* (*GetActiveTake)(MediaItem* item);
 static PCM_source* (*GetMediaItemTake_Source)(MediaItem_Take* take);
@@ -36,6 +50,7 @@ static bool s_armed = false;
 static char s_armed_filepath[4096] = {};
 static id s_mouse_monitor = nil;
 static id s_key_monitor = nil;
+static id s_cursor_monitor = nil;
 
 // Forward declarations
 static void sampledrag_arm();
@@ -150,12 +165,11 @@ static void generate_output_path(char* out, int out_sz, const char* item_name)
         else strcpy(mediadir, "/tmp");
     }
 
-    for (int n = 1; n < 10000; n++) {
-        snprintf(out, out_sz, "%s/sampledrag_%s_%03d.wav", mediadir, safe_name, n);
+    for (int n = 1; ; n++) {
+        snprintf(out, out_sz, "%s/%s_sd_%d.wav", mediadir, safe_name, n);
         struct stat st;
         if (stat(out, &st) != 0) return;
     }
-    snprintf(out, out_sz, "%s/sampledrag_%s.wav", mediadir, safe_name);
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +233,7 @@ static bool sampledrag_render(PCM_source* source, double offset, double length,
 
 static void sampledrag_disarm()
 {
+    SD_LOG("disarm: was_armed=%d", s_armed);
     bool was_armed = s_armed;
     s_armed = false;
     s_armed_filepath[0] = 0;
@@ -231,7 +246,11 @@ static void sampledrag_disarm()
         [NSEvent removeMonitor:s_key_monitor];
         s_key_monitor = nil;
     }
-    if (was_armed) [NSCursor pop];
+    if (s_cursor_monitor) {
+        [NSEvent removeMonitor:s_cursor_monitor];
+        s_cursor_monitor = nil;
+    }
+    if (was_armed) [[NSCursor arrowCursor] set];
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +260,7 @@ static void sampledrag_disarm()
 static void sampledrag_do_drag()
 {
     if (!s_armed || !s_armed_filepath[0]) return;
+    SD_LOG("do_drag: %s", s_armed_filepath);
 
     const char* files[] = { s_armed_filepath };
     RECT r = { 0, 0, 32, 32 };
@@ -268,16 +288,34 @@ static void sampledrag_install_monitor()
         [NSEvent removeMonitor:s_key_monitor];
         s_key_monitor = nil;
     }
+    if (s_cursor_monitor) {
+        [NSEvent removeMonitor:s_cursor_monitor];
+        s_cursor_monitor = nil;
+    }
+
+    // Keep crosshair cursor while armed. We dispatch_async so our set runs
+    // AFTER REAPER's own cursor update in the same run loop iteration.
+    s_cursor_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+        handler:^NSEvent*(NSEvent* event) {
+            if (s_armed) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (s_armed) [[NSCursor crosshairCursor] set];
+                });
+            }
+            return event;
+        }];
 
     s_mouse_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown
         handler:^NSEvent*(NSEvent* event) {
             if (!s_armed) return event;
 
+            SD_LOG("monitor: mouse-down intercepted");
             if (sampledrag_resolve_and_render()) {
                 sampledrag_do_drag();
                 sampledrag_disarm();
                 return nil;
             }
+            SD_LOG("monitor: no item under cursor, disarming");
             sampledrag_disarm();
             return event;
         }];
@@ -298,21 +336,22 @@ static void sampledrag_install_monitor()
 
 static bool sampledrag_resolve_and_render()
 {
-    // Select item under mouse cursor
-    Main_OnCommand(40528, 0);
+    Main_OnCommand(40528, 0); // Select item under mouse cursor
 
     MediaItem* item = GetSelectedMediaItem(nullptr, 0);
-    if (!item) return false;
+    if (!item) { SD_LOG("resolve: no item under cursor"); return false; }
+    SD_LOG("resolve: item=%p", item);
 
     MediaItem_Take* take = GetActiveTake(item);
-    if (!take) return false;
+    if (!take) { SD_LOG("resolve: no active take"); return false; }
 
     PCM_source* source = GetMediaItemTake_Source(take);
-    if (!source) return false;
+    if (!source) { SD_LOG("resolve: no source"); return false; }
 
     char srcfile[4096] = {};
     GetMediaSourceFileName(source, srcfile, sizeof(srcfile));
-    if (!srcfile[0]) return false;
+    if (!srcfile[0]) { SD_LOG("resolve: no filename"); return false; }
+    SD_LOG("resolve: src=%s", srcfile);
 
     double soffs = GetMediaItemTakeInfo_Value(take, "D_STARTOFFS");
     double item_len = GetMediaItemInfo_Value(item, "D_LENGTH");
@@ -320,29 +359,39 @@ static bool sampledrag_resolve_and_render()
     double src_len = GetMediaSourceLength(source, &lengthIsQN);
     int takefx_count = TakeFX_GetCount(take);
 
+    SD_LOG("resolve: soffs=%.4f len=%.4f srclen=%.4f takeFX=%d",
+           soffs, item_len, src_len, takefx_count);
+
     if (takefx_count > 0) {
-        // Render with take FX baked in
-        Main_OnCommand(40209, 0); // Apply FX to items as new take
+        SD_LOG("resolve: rendering with %d take FX", takefx_count);
+        Main_OnCommand(40209, 0);
 
         MediaItem_Take* fxTake = GetActiveTake(item);
-        if (!fxTake) return false;
+        if (!fxTake) { SD_LOG("resolve: FX render produced no take"); return false; }
 
         PCM_source* fxSource = GetMediaItemTake_Source(fxTake);
-        if (!fxSource) { Main_OnCommand(40029, 0); return false; }
+        if (!fxSource) { SD_LOG("resolve: FX take has no source"); Main_OnCommand(40029, 0); return false; }
 
         char fxFile[4096] = {};
         GetMediaSourceFileName(fxSource, fxFile, sizeof(fxFile));
-        if (!fxFile[0]) { Main_OnCommand(40029, 0); return false; }
+        if (!fxFile[0]) { SD_LOG("resolve: FX file has no name"); Main_OnCommand(40029, 0); return false; }
 
         strncpy(s_armed_filepath, fxFile, sizeof(s_armed_filepath) - 1);
-        Main_OnCommand(40029, 0); // Undo - restores original take, file stays on disk
+        Main_OnCommand(40029, 0);
+        SD_LOG("resolve: FX rendered to %s (undone)", s_armed_filepath);
     } else {
         bool needs_render = (soffs > 0.01 || (src_len - item_len) > 0.01);
+        SD_LOG("resolve: needs_render=%d", needs_render);
 
         if (needs_render) {
-            if (!sampledrag_render(source, soffs, item_len, take)) return false;
+            if (!sampledrag_render(source, soffs, item_len, take)) {
+                SD_LOG("resolve: render failed");
+                return false;
+            }
+            SD_LOG("resolve: rendered to %s", s_armed_filepath);
         } else {
             strncpy(s_armed_filepath, srcfile, sizeof(s_armed_filepath) - 1);
+            SD_LOG("resolve: using raw source");
         }
     }
 
@@ -356,13 +405,15 @@ static bool sampledrag_resolve_and_render()
 static void sampledrag_arm()
 {
     if (s_armed) {
+        SD_LOG("arm: toggling off");
         sampledrag_disarm();
         return;
     }
 
     s_armed = true;
     sampledrag_install_monitor();
-    [[NSCursor crosshairCursor] push];
+    [[NSCursor crosshairCursor] set];
+    SD_LOG("ARMED - click an item to drag, Escape to cancel");
 }
 
 // ---------------------------------------------------------------------------
