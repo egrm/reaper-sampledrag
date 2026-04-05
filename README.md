@@ -5,9 +5,9 @@ REAPER extension that fixes drag-and-drop from the timeline into third-party sam
 ## Install
 
 1. Download `reaper_sampledrag-arm64.dylib` from [Releases](https://github.com/egrm/reaper-sampledrag/releases).
-2. Copy it to your REAPER `UserPlugins/` folder.
+2. Copy it to your REAPER resource path under `UserPlugins/`. On macOS this is usually `~/Library/Application Support/REAPER/UserPlugins/`.
 3. Restart REAPER.
-4. Open the Actions list, search "SampleDrag", bind a shortcut.
+4. Open the Actions list (`?`), search for "SampleDrag: Arm drag from timeline", bind a shortcut.
 
 ## Usage
 
@@ -17,9 +17,9 @@ REAPER extension that fixes drag-and-drop from the timeline into third-party sam
 
 Escape or clicking empty space cancels.
 
-Items with take FX get rendered with FX baked in. Cropped items render only the visible portion. Full-file items use the source directly.
+Cropped and split items render only the visible portion. Items with take FX render with FX baked in. Items that cover their full source file skip rendering entirely.
 
-Rendered files go into your project's Media folder as `<name>_sd_1.wav`, `<name>_sd_2.wav`, etc.
+Rendered files go into your project's Media folder as `<name>_sd_1.wav`, `<name>_sd_2.wav`, etc. Sample rate, bit depth, and channel count match the source.
 
 ---
 
@@ -29,7 +29,7 @@ REAPER's FX chain window intercepts all drag-drop events on macOS. Only ReaSampl
 
 On top of that, REAPER doesn't create new files when you split or trim items. It stores offset and length into the original source. So even if drag-drop worked, your sampler would get the full recording instead of the cropped slice.
 
-SampleDrag works around both problems. It renders the visible item portion (respecting source sample rate, bit depth, and channel count), then uses `SWELL_InitiateDragDropOfFileList` to start a native macOS drag session that bypasses the FX chain interception entirely.
+SampleDrag works around both problems. It renders the visible item portion, then uses `SWELL_InitiateDragDropOfFileList` to start a native macOS drag session that bypasses the FX chain interception entirely.
 
 ## Building from source
 
@@ -39,10 +39,12 @@ macOS ARM64 only. Requires Xcode Command Line Tools.
 git clone --recurse-submodules https://github.com/egrm/reaper-sampledrag.git
 cd reaper-sampledrag
 make
-make install  # copies to ~/Applications/REAPER/UserPlugins/
+make install
 ```
 
-Override install path: `make install INSTALL_DIR=/your/path/UserPlugins`
+`make install` copies the dylib to `~/Applications/REAPER/UserPlugins/` by default. Override with `make install INSTALL_DIR=/your/path/UserPlugins`.
+
+For a debug build with console logging: `make debug`.
 
 ## License
 
