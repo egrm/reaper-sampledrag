@@ -42,7 +42,11 @@ make
 make install
 ```
 
-`make install` copies the dylib to `~/Applications/REAPER/UserPlugins/` by default. Override with `make install INSTALL_DIR=/your/path/UserPlugins`.
+`make install` copies the dylib to `~/Applications/REAPER/UserPlugins/` by default. For a standard (non-portable) REAPER install, use:
+
+```bash
+make install INSTALL_DIR=~/Library/Application\ Support/REAPER/UserPlugins
+```
 
 For a debug build with console logging: `make debug`.
 
