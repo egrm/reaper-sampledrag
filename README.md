@@ -5,7 +5,9 @@ REAPER extension that fixes drag-and-drop from the timeline into third-party sam
 ## Install
 
 1. Download `reaper_sampledrag-arm64.dylib` from [Releases](https://github.com/egrm/reaper-sampledrag/releases).
-2. Copy it to your REAPER resource path under `UserPlugins/`. On macOS this is usually `~/Library/Application Support/REAPER/UserPlugins/`.
+2. Copy it to your REAPER `UserPlugins/` folder:
+   - **Standard install:** `~/Library/Application Support/REAPER/UserPlugins/`
+   - **Portable install:** the `UserPlugins/` folder next to your `REAPER.app`
 3. Restart REAPER.
 4. Open the Actions list (`?`), search for "SampleDrag: Arm drag from timeline", bind a shortcut.
 
@@ -39,14 +41,9 @@ macOS ARM64 only. Requires Xcode Command Line Tools.
 git clone --recurse-submodules https://github.com/egrm/reaper-sampledrag.git
 cd reaper-sampledrag
 make
-make install
 ```
 
-`make install` copies the dylib to `~/Applications/REAPER/UserPlugins/` by default. For a standard (non-portable) REAPER install, use:
-
-```bash
-make install INSTALL_DIR=~/Library/Application\ Support/REAPER/UserPlugins
-```
+This produces `reaper_sampledrag-arm64.dylib` in the project root. Copy it to your `UserPlugins/` folder as described above.
 
 For a debug build with console logging: `make debug`.
 
