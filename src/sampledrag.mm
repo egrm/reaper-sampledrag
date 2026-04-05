@@ -376,9 +376,16 @@ static bool sampledrag_resolve_and_render()
         GetMediaSourceFileName(fxSource, fxFile, sizeof(fxFile));
         if (!fxFile[0]) { SD_LOG("resolve: FX file has no name"); Main_OnCommand(40029, 0); return false; }
 
-        strncpy(s_armed_filepath, fxFile, sizeof(s_armed_filepath) - 1);
-        Main_OnCommand(40029, 0);
-        SD_LOG("resolve: FX rendered to %s (undone)", s_armed_filepath);
+        Main_OnCommand(40029, 0); // undo - restores original take, file stays on disk
+
+        // Rename REAPER's rendered file to our naming convention
+        char item_name[256] = {};
+        GetSetMediaItemTakeInfo_String(take, "P_NAME", item_name, false);
+        char outpath[4096] = {};
+        generate_output_path(outpath, sizeof(outpath), item_name);
+        rename(fxFile, outpath);
+        strncpy(s_armed_filepath, outpath, sizeof(s_armed_filepath) - 1);
+        SD_LOG("resolve: FX rendered, renamed to %s", s_armed_filepath);
     } else {
         bool needs_render = (soffs > 0.01 || (src_len - item_len) > 0.01);
         SD_LOG("resolve: needs_render=%d", needs_render);
